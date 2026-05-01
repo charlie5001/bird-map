@@ -10,7 +10,8 @@ import {
   Alert,
   Image,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-map-clustering';
+import MapView from 'react-native-map-clustering';
+import { Marker } from 'react-native-maps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BIRDS from './birds';
 
@@ -31,6 +32,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [trackedMarkers, setTrackedMarkers] = useState({});
   const mapRef = useRef(null);
+  const clusterPressed = useRef(false);
 
   useEffect(() => { loadPins(); }, []);
 
@@ -47,9 +49,23 @@ export default function App() {
   }
 
   function onMapPress(e) {
+    if (clusterPressed.current) return;
     setPendingCoord(e.nativeEvent.coordinate);
     setSearch('');
     setPickerVisible(true);
+  }
+
+  function onClusterPress(cluster, markers) {
+    clusterPressed.current = true;
+    setTimeout(() => { clusterPressed.current = false; }, 500);
+    const coords = markers.map(m => ({
+      latitude: m.geometry.coordinates[1],
+      longitude: m.geometry.coordinates[0],
+    }));
+    mapRef.current?.fitToCoordinates(coords, {
+      edgePadding: { top: 120, right: 80, bottom: 120, left: 80 },
+      animated: true,
+    });
   }
 
   function selectBird(bird) {
@@ -102,6 +118,7 @@ export default function App() {
         clusterFontFamily="System"
         radius={60}
         animationEnabled
+        onClusterPress={onClusterPress}
       >
         {pins.map(pin => (
           <Marker
