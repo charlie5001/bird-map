@@ -22,6 +22,7 @@ export default function App() {
   const [selectedPin, setSelectedPin] = useState(null);
   const [search, setSearch] = useState('');
   const [trackedMarkers, setTrackedMarkers] = useState({});
+  const [failedImages, setFailedImages] = useState({});
   const [locating, setLocating] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const mapRef = useRef(null);
@@ -130,7 +131,7 @@ export default function App() {
   }
 
   function selectBird(bird) {
-    const entry = { birdId: bird.id, name: bird.name, scientific: bird.scientific, image: bird.image, date: new Date().toLocaleDateString() };
+    const entry = { birdId: bird.id, name: bird.name, scientific: bird.scientific, image: bird.image, emoji: bird.emoji, date: new Date().toLocaleDateString() };
     if (pendingPinId) {
       // Add bird to existing pin
       const updated = pins.map(p =>
@@ -188,11 +189,13 @@ export default function App() {
         style={styles.map}
         initialRegion={NZ_REGION}
         onPress={onMapPress}
-        clusterColor="#2e7d32"
+        clusterColor="#1b5e20"
         clusterTextColor="#fff"
         clusterFontFamily="System"
         radius={35}
         maxZoom={14}
+        clusteringEnabled
+        spiderLineColor="#2e7d32"
         animationEnabled
         onClusterPress={onClusterPress}
         onRegionChangeComplete={r => { currentRegion.current = r; }}
@@ -206,11 +209,21 @@ export default function App() {
             onPress={() => onMarkerPress(pin)}
           >
             <View style={styles.markerContainer}>
-              <Image
-                source={{ uri: pin.birds[0].image }}
-                style={styles.markerImage}
-                onLoad={() => setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }))}
-              />
+              {failedImages[pin.id] ? (
+                <View style={styles.markerFallback}>
+                  <Text style={styles.markerEmoji}>{pin.birds[0].emoji ?? '🐦'}</Text>
+                </View>
+              ) : (
+                <Image
+                  source={{ uri: pin.birds[0].image }}
+                  style={styles.markerImage}
+                  onLoad={() => setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }))}
+                  onError={() => {
+                    setFailedImages(prev => ({ ...prev, [pin.id]: true }));
+                    setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }));
+                  }}
+                />
+              )}
               {pin.birds.length > 1 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{pin.birds.length}</Text>
@@ -363,6 +376,8 @@ const styles = StyleSheet.create({
     shadowRadius: 3, shadowOffset: { width: 0, height: 1 },
   },
   markerImage: { width: '100%', height: '100%' },
+  markerFallback: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: '#c8e6c9' },
+  markerEmoji: { fontSize: 22 },
   badge: {
     position: 'absolute', bottom: 0, right: 0,
     backgroundColor: '#2e7d32', borderRadius: 8,
