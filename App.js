@@ -154,14 +154,31 @@ export default function App() {
   function onClusterBubblePress(group) {
     clusterPressed.current = true;
     setTimeout(() => { clusterPressed.current = false; }, 600);
+
     const lats = group.map(p => p.coordinate.latitude);
     const lngs = group.map(p => p.coordinate.longitude);
-    const pad = region.latitudeDelta * 0.08;
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const spanLat = maxLat - minLat;
+    const spanLng = maxLng - minLng;
+
+    // Target a delta small enough that pins will separate on next render.
+    // Pins cluster when delta * CLUSTER_THRESHOLD > span, so we need
+    // newDelta < span / CLUSTER_THRESHOLD. Use 30% of that for clear separation.
+    const targetLat = spanLat > 0
+      ? spanLat / CLUSTER_THRESHOLD * 0.3
+      : region.latitudeDelta / 5;
+    const targetLng = spanLng > 0
+      ? spanLng / CLUSTER_THRESHOLD * 0.3
+      : region.longitudeDelta / 5;
+
     mapRef.current?.animateToRegion({
-      latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
-      longitude: (Math.min(...lngs) + Math.max(...lngs)) / 2,
-      latitudeDelta: Math.max(Math.max(...lats) - Math.min(...lats) + pad, 0.003),
-      longitudeDelta: Math.max(Math.max(...lngs) - Math.min(...lngs) + pad, 0.003),
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: Math.max(targetLat, 0.0004),
+      longitudeDelta: Math.max(targetLng, 0.0004),
     }, 500);
   }
 
