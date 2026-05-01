@@ -119,18 +119,17 @@ export default function App() {
     setTimeout(() => { modalClosing.current = false; }, 400);
   }
 
-  function onClusterPress(cluster) {
+  function onClusterPress(cluster, markers) {
     clusterPressed.current = true;
-    setTimeout(() => { clusterPressed.current = false; }, 500);
-    const latitude = cluster.geometry.coordinates[1];
-    const longitude = cluster.geometry.coordinates[0];
-    const { latitudeDelta, longitudeDelta } = currentRegion.current;
-    mapRef.current?.animateToRegion({
-      latitude,
-      longitude,
-      latitudeDelta: latitudeDelta * 0.35,
-      longitudeDelta: longitudeDelta * 0.35,
-    }, 500);
+    setTimeout(() => { clusterPressed.current = false; }, 600);
+    const coords = markers.map(m => ({
+      latitude: m.geometry.coordinates[1],
+      longitude: m.geometry.coordinates[0],
+    }));
+    mapRef.current?.fitToCoordinates(coords, {
+      edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+      animated: true,
+    });
   }
 
   function onMarkerPress(pin) {
@@ -207,6 +206,7 @@ export default function App() {
         onClusterPress={onClusterPress}
         onRegionChangeComplete={r => { currentRegion.current = r; }}
         showsUserLocation
+        removeClippedSubviews={false}
       >
         {pins.map(pin => (
           <Marker
