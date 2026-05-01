@@ -45,6 +45,7 @@ function clusterCenter(group) {
 export default function App() {
   const [pins, setPins] = useState([]);
   const [region, setRegion] = useState(NZ_REGION);
+  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
   const [pendingCoord, setPendingCoord] = useState(null);
   const [pendingPinId, setPendingPinId] = useState(null);
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -216,6 +217,14 @@ export default function App() {
   const totalSightings = pins.reduce((sum, p) => sum + p.birds.length, 0);
   const clusters = buildClusters(pins, region);
 
+  function toScreen(lat, lng) {
+    const { width, height } = mapSize;
+    if (!width || !height) return null;
+    const x = (lng - region.longitude) / region.longitudeDelta * width + width / 2;
+    const y = -(lat - region.latitude) / region.latitudeDelta * height + height / 2;
+    return { x, y };
+  }
+
   return (
     <View style={styles.container}>
       <MapView
@@ -223,62 +232,64 @@ export default function App() {
         style={styles.map}
         initialRegion={NZ_REGION}
         onPress={onMapPress}
+        onLayout={e => setMapSize(e.nativeEvent.layout)}
         onRegionChange={r => { regionRef.current = r; }}
         onRegionChangeComplete={r => { regionRef.current = r; setRegion(r); }}
         showsUserLocation
       >
-        {clusters.map((group, idx) => {
-          if (group.length === 1) {
-            const pin = group[0];
-            return (
-              <Marker
-                key={pin.id}
-                coordinate={pin.coordinate}
-                tracksViewChanges={!trackedMarkers[pin.id]}
-                onPress={() => onMarkerPress(pin)}
-              >
-                <View style={styles.markerContainer}>
-                  {failedImages[pin.id] ? (
-                    <View style={styles.markerFallback}>
-                      <Text style={styles.markerEmoji}>{pin.birds[0].emoji ?? '🐦'}</Text>
-                    </View>
-                  ) : (
-                    <Image
-                      source={{ uri: pin.birds[0].image }}
-                      style={styles.markerImage}
-                      onLoad={() => setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }))}
-                      onError={() => {
-                        setFailedImages(prev => ({ ...prev, [pin.id]: true }));
-                        setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }));
-                      }}
-                    />
-                  )}
-                  {pin.birds.length > 1 && (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>{pin.birds.length}</Text>
-                    </View>
-                  )}
-                </View>
-              </Marker>
-            );
-          }
-
-          const center = clusterCenter(group);
-          const clusterKey = group.map(p => p.id).sort().join('-');
+        {clusters.filter(g => g.length === 1).map(group => {
+          const pin = group[0];
           return (
             <Marker
-              key={clusterKey}
-              coordinate={center}
-              tracksViewChanges={false}
-              onPress={() => onClusterBubblePress(group)}
+              key={pin.id}
+              coordinate={pin.coordinate}
+              tracksViewChanges={!trackedMarkers[pin.id]}
+              onPress={() => onMarkerPress(pin)}
             >
-              <View style={styles.clusterBubble}>
-                <Text style={styles.clusterText}>{group.length}</Text>
+              <View style={styles.markerContainer}>
+                {failedImages[pin.id] ? (
+                  <View style={styles.markerFallback}>
+                    <Text style={styles.markerEmoji}>{pin.birds[0].emoji ?? '🐦'}</Text>
+                  </View>
+                ) : (
+                  <Image
+                    source={{ uri: pin.birds[0].image }}
+                    style={styles.markerImage}
+                    onLoad={() => setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }))}
+                    onError={() => {
+                      setFailedImages(prev => ({ ...prev, [pin.id]: true }));
+                      setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }));
+                    }}
+                  />
+                )}
+                {pin.birds.length > 1 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{pin.birds.length}</Text>
+                  </View>
+                )}
               </View>
             </Marker>
           );
         })}
       </MapView>
+
+      {/* Cluster overlays — rendered as plain views, not Markers, for reliable touch */}
+      {clusters.filter(g => g.length > 1).map(group => {
+        const center = clusterCenter(group);
+        const pos = toScreen(center.latitude, center.longitude);
+        if (!pos) return null;
+        const key = group.map(p => p.id).sort().join('-');
+        return (
+          <TouchableOpacity
+            key={key}
+            style={[styles.clusterBubble, { position: 'absolute', left: pos.x - 26, top: pos.y - 26 }]}
+            onPress={() => onClusterBubblePress(group)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.clusterText}>{group.length}</Text>
+          </TouchableOpacity>
+        );
+      })}
 
       <View style={styles.locationButtons}>
         <TouchableOpacity style={styles.iconButton} onPress={goToMyLocation} disabled={locating}>
