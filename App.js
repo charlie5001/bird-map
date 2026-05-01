@@ -10,9 +10,11 @@ import {
   Alert,
   Image,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-map-clustering';
-import { Marker as RNMarker } from 'react-native-maps';
+import MapView from 'react-native-map-clustering';
+import { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BIRDS from './birds';
@@ -176,13 +178,14 @@ export default function App() {
         clusterTextColor="#fff"
         clusterFontFamily="System"
         radius={35}
+        maxZoom={14}
         animationEnabled
         onClusterPress={onClusterPress}
         onRegionChangeComplete={region => { currentRegion.current = region; }}
         showsUserLocation
       >
         {pins.map(pin => (
-          <RNMarker
+          <Marker
             key={pin.id}
             coordinate={pin.coordinate}
             title={pin.name}
@@ -199,7 +202,7 @@ export default function App() {
                 }
               />
             </View>
-          </RNMarker>
+          </Marker>
         ))}
       </MapView>
 
@@ -224,38 +227,49 @@ export default function App() {
 
       {/* Bird picker modal */}
       <Modal visible={pickerVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, styles.pickerCard]}>
-            <Text style={styles.modalTitle}>Select Bird</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search species..."
-              value={search}
-              onChangeText={setSearch}
-              autoFocus
-            />
-            <FlatList
-              data={filteredBirds}
-              keyExtractor={b => b.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={styles.birdRow} onPress={() => selectBird(item)}>
-                  <Image source={{ uri: item.image }} style={styles.birdThumb} />
-                  <View style={styles.birdInfo}>
-                    <Text style={styles.birdName}>{item.name}</Text>
-                    <Text style={styles.birdSci}>{item.scientific}</Text>
-                  </View>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setPickerVisible(false)}
+          >
+            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+              <View style={[styles.modalCard, styles.pickerCard]}>
+                <Text style={styles.modalTitle}>Select Bird</Text>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search species..."
+                  value={search}
+                  onChangeText={setSearch}
+                  autoFocus
+                />
+                <FlatList
+                  data={filteredBirds}
+                  keyExtractor={b => b.id}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity style={styles.birdRow} onPress={() => selectBird(item)}>
+                      <Image source={{ uri: item.image }} style={styles.birdThumb} />
+                      <View style={styles.birdInfo}>
+                        <Text style={styles.birdName}>{item.name}</Text>
+                        <Text style={styles.birdSci}>{item.scientific}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                  keyboardShouldPersistTaps="handled"
+                />
+                <TouchableOpacity
+                  style={[styles.btn, styles.cancelBtn, { marginTop: 12 }]}
+                  onPress={() => setPickerVisible(false)}
+                >
+                  <Text style={styles.cancelText}>Cancel</Text>
                 </TouchableOpacity>
-              )}
-              keyboardShouldPersistTaps="handled"
-            />
-            <TouchableOpacity
-              style={[styles.btn, styles.cancelBtn, { marginTop: 12 }]}
-              onPress={() => setPickerVisible(false)}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
+              </View>
             </TouchableOpacity>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Sightings list modal */}
