@@ -119,17 +119,18 @@ export default function App() {
     setTimeout(() => { modalClosing.current = false; }, 400);
   }
 
-  function onClusterPress(cluster, markers) {
+  function onClusterPress(cluster) {
     clusterPressed.current = true;
     setTimeout(() => { clusterPressed.current = false; }, 500);
-    const coords = markers.map(m => ({
-      latitude: m.geometry.coordinates[1],
-      longitude: m.geometry.coordinates[0],
-    }));
-    mapRef.current?.fitToCoordinates(coords, {
-      edgePadding: { top: 120, right: 80, bottom: 120, left: 80 },
-      animated: true,
-    });
+    const latitude = cluster.geometry.coordinates[1];
+    const longitude = cluster.geometry.coordinates[0];
+    const { latitudeDelta, longitudeDelta } = currentRegion.current;
+    mapRef.current?.animateToRegion({
+      latitude,
+      longitude,
+      latitudeDelta: latitudeDelta * 0.35,
+      longitudeDelta: longitudeDelta * 0.35,
+    }, 500);
   }
 
   function onMarkerPress(pin) {
