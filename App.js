@@ -3,19 +3,50 @@ import {
   StyleSheet, View, Text, TextInput, TouchableOpacity,
   Modal, FlatList, Alert, Image, ActivityIndicator, Keyboard, Platform,
 } from 'react-native';
-import MapView from 'react-native-map-clustering';
-import { Marker } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BIRDS from './birds';
 
 const STORAGE_KEY = 'bird_pins';
 const NZ_REGION = { latitude: -41.5, longitude: 172.0, latitudeDelta: 14, longitudeDelta: 14 };
+const CLUSTER_THRESHOLD = 0.07; // fraction of latitudeDelta to use as cluster radius
+
+function buildClusters(pins, region) {
+  const threshold = CLUSTER_THRESHOLD * region.latitudeDelta;
+  const assigned = new Set();
+  const clusters = [];
+
+  pins.forEach((pin, i) => {
+    if (assigned.has(i)) return;
+    const group = [pin];
+    assigned.add(i);
+    pins.forEach((other, j) => {
+      if (i === j || assigned.has(j)) return;
+      const dlat = Math.abs(pin.coordinate.latitude - other.coordinate.latitude);
+      const dlng = Math.abs(pin.coordinate.longitude - other.coordinate.longitude);
+      if (dlat < threshold && dlng < threshold) {
+        group.push(other);
+        assigned.add(j);
+      }
+    });
+    clusters.push(group);
+  });
+
+  return clusters;
+}
+
+function clusterCenter(group) {
+  const lat = group.reduce((s, p) => s + p.coordinate.latitude, 0) / group.length;
+  const lng = group.reduce((s, p) => s + p.coordinate.longitude, 0) / group.length;
+  return { latitude: lat, longitude: lng };
+}
 
 export default function App() {
   const [pins, setPins] = useState([]);
+  const [region, setRegion] = useState(NZ_REGION);
   const [pendingCoord, setPendingCoord] = useState(null);
-  const [pendingPinId, setPendingPinId] = useState(null); // null = new pin, string = add to existing
+  const [pendingPinId, setPendingPinId] = useState(null);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [listVisible, setListVisible] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
@@ -28,7 +59,6 @@ export default function App() {
   const mapRef = useRef(null);
   const clusterPressed = useRef(false);
   const modalClosing = useRef(false);
-  const currentRegion = useRef(NZ_REGION);
 
   useEffect(() => {
     loadPins();
@@ -57,8 +87,7 @@ export default function App() {
       if (status !== 'granted') { Alert.alert('Permission denied', 'Enable location in Settings.'); return; }
       const loc = await Location.getCurrentPositionAsync({});
       const coord = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
-      const { latitudeDelta, longitudeDelta } = currentRegion.current;
-      mapRef.current?.animateToRegion({ ...coord, latitudeDelta, longitudeDelta }, 600);
+      mapRef.current?.animateToRegion({ ...coord, latitudeDelta: region.latitudeDelta, longitudeDelta: region.longitudeDelta }, 600);
     } finally { setLocating(false); }
   }
 
@@ -79,11 +108,7 @@ export default function App() {
       const parsed = JSON.parse(raw);
       const migrated = parsed.map(p => {
         if (p.birds) return p;
-        return {
-          id: p.id,
-          coordinate: p.coordinate,
-          birds: [{ birdId: p.birdId, name: p.name, scientific: p.scientific, image: p.image, date: p.date }],
-        };
+        return { id: p.id, coordinate: p.coordinate, birds: [{ birdId: p.birdId, name: p.name, scientific: p.scientific, image: p.image, emoji: p.emoji, date: p.date }] };
       });
       setPins(migrated);
     } catch {}
@@ -92,6 +117,12 @@ export default function App() {
   async function savePins(updated) {
     setPins(updated);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  }
+
+  function closeModal(setter) {
+    modalClosing.current = true;
+    setter(false);
+    setTimeout(() => { modalClosing.current = false; }, 400);
   }
 
   function openPickerForNewPin(coord) {
@@ -113,51 +144,36 @@ export default function App() {
     openPickerForNewPin(e.nativeEvent.coordinate);
   }
 
-  function closeModal(setter) {
-    modalClosing.current = true;
-    setter(false);
-    setTimeout(() => { modalClosing.current = false; }, 400);
-  }
-
-  function onClusterPress(cluster, markers) {
-    clusterPressed.current = true;
-    setTimeout(() => { clusterPressed.current = false; }, 600);
-
-    const lats = markers.map(m => m.geometry.coordinates[1]);
-    const lngs = markers.map(m => m.geometry.coordinates[0]);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
-    const pad = 0.003;
-
-    mapRef.current?.animateToRegion({
-      latitude: (minLat + maxLat) / 2,
-      longitude: (minLng + maxLng) / 2,
-      latitudeDelta: Math.max(maxLat - minLat + pad, 0.005),
-      longitudeDelta: Math.max(maxLng - minLng + pad, 0.005),
-    }, 500);
-  }
-
   function onMarkerPress(pin) {
+    clusterPressed.current = true;
+    setTimeout(() => { clusterPressed.current = false; }, 400);
     setSelectedPin(pin);
     setDetailVisible(true);
+  }
+
+  function onClusterBubblePress(group) {
+    clusterPressed.current = true;
+    setTimeout(() => { clusterPressed.current = false; }, 600);
+    const lats = group.map(p => p.coordinate.latitude);
+    const lngs = group.map(p => p.coordinate.longitude);
+    const pad = region.latitudeDelta * 0.08;
+    mapRef.current?.animateToRegion({
+      latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
+      longitude: (Math.min(...lngs) + Math.max(...lngs)) / 2,
+      latitudeDelta: Math.max(Math.max(...lats) - Math.min(...lats) + pad, 0.003),
+      longitudeDelta: Math.max(Math.max(...lngs) - Math.min(...lngs) + pad, 0.003),
+    }, 500);
   }
 
   function selectBird(bird) {
     const entry = { birdId: bird.id, name: bird.name, scientific: bird.scientific, image: bird.image, emoji: bird.emoji, date: new Date().toLocaleDateString() };
     if (pendingPinId) {
-      // Add bird to existing pin
-      const updated = pins.map(p =>
-        p.id === pendingPinId ? { ...p, birds: [...p.birds, entry] } : p
-      );
+      const updated = pins.map(p => p.id === pendingPinId ? { ...p, birds: [...p.birds, entry] } : p);
       savePins(updated);
       setSelectedPin(updated.find(p => p.id === pendingPinId));
       setDetailVisible(true);
     } else {
-      // Create new pin
-      const pin = { id: Date.now().toString(), coordinate: pendingCoord, birds: [entry] };
-      savePins([...pins, pin]);
+      savePins([...pins, { id: Date.now().toString(), coordinate: pendingCoord, birds: [entry] }]);
     }
     setPickerVisible(false);
   }
@@ -165,27 +181,23 @@ export default function App() {
   function deleteBirdFromPin(pinId, birdIdx) {
     const updated = pins.map(p => {
       if (p.id !== pinId) return p;
-      const birds = p.birds.filter((_, i) => i !== birdIdx);
-      return { ...p, birds };
+      return { ...p, birds: p.birds.filter((_, i) => i !== birdIdx) };
     }).filter(p => p.birds.length > 0);
     savePins(updated);
     const refreshed = updated.find(p => p.id === pinId);
     if (refreshed) setSelectedPin(refreshed);
-    else setDetailVisible(false);
+    else closeModal(setDetailVisible);
   }
 
   function deletePin(pinId) {
     Alert.alert('Delete pin', 'Remove this pin and all its sightings?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => {
-        savePins(pins.filter(p => p.id !== pinId));
-        closeModal(setDetailVisible);
-      }},
+      { text: 'Delete', style: 'destructive', onPress: () => { savePins(pins.filter(p => p.id !== pinId)); closeModal(setDetailVisible); } },
     ]);
   }
 
   function flyToPin(pin) {
-    setListVisible(false);
+    closeModal(setListVisible);
     mapRef.current?.animateToRegion({ ...pin.coordinate, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 500);
   }
 
@@ -195,6 +207,7 @@ export default function App() {
   );
 
   const totalSightings = pins.reduce((sum, p) => sum + p.birds.length, 0);
+  const clusters = buildClusters(pins, region);
 
   return (
     <View style={styles.container}>
@@ -203,52 +216,61 @@ export default function App() {
         style={styles.map}
         initialRegion={NZ_REGION}
         onPress={onMapPress}
-        clusterColor="#1b5e20"
-        clusterTextColor="#fff"
-        clusterFontFamily="System"
-        radius={35}
-        clusteringEnabled
-        spiderLineColor="#2e7d32"
-        animationEnabled
-        onClusterPress={onClusterPress}
-        onRegionChangeComplete={r => { currentRegion.current = r; }}
+        onRegionChangeComplete={setRegion}
         showsUserLocation
-        removeClippedSubviews={false}
       >
-        {pins.map(pin => (
-          <Marker
-            key={pin.id}
-            coordinate={pin.coordinate}
-            tracksViewChanges={!trackedMarkers[pin.id]}
-            onPress={() => onMarkerPress(pin)}
-          >
-            <View style={styles.markerContainer}>
-              {failedImages[pin.id] ? (
-                <View style={styles.markerFallback}>
-                  <Text style={styles.markerEmoji}>{pin.birds[0].emoji ?? '🐦'}</Text>
+        {clusters.map((group, idx) => {
+          if (group.length === 1) {
+            const pin = group[0];
+            return (
+              <Marker
+                key={pin.id}
+                coordinate={pin.coordinate}
+                tracksViewChanges={!trackedMarkers[pin.id]}
+                onPress={() => onMarkerPress(pin)}
+              >
+                <View style={styles.markerContainer}>
+                  {failedImages[pin.id] ? (
+                    <View style={styles.markerFallback}>
+                      <Text style={styles.markerEmoji}>{pin.birds[0].emoji ?? '🐦'}</Text>
+                    </View>
+                  ) : (
+                    <Image
+                      source={{ uri: pin.birds[0].image }}
+                      style={styles.markerImage}
+                      onLoad={() => setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }))}
+                      onError={() => {
+                        setFailedImages(prev => ({ ...prev, [pin.id]: true }));
+                        setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }));
+                      }}
+                    />
+                  )}
+                  {pin.birds.length > 1 && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{pin.birds.length}</Text>
+                    </View>
+                  )}
                 </View>
-              ) : (
-                <Image
-                  source={{ uri: pin.birds[0].image }}
-                  style={styles.markerImage}
-                  onLoad={() => setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }))}
-                  onError={() => {
-                    setFailedImages(prev => ({ ...prev, [pin.id]: true }));
-                    setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }));
-                  }}
-                />
-              )}
-              {pin.birds.length > 1 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{pin.birds.length}</Text>
-                </View>
-              )}
-            </View>
-          </Marker>
-        ))}
+              </Marker>
+            );
+          }
+
+          const center = clusterCenter(group);
+          return (
+            <Marker
+              key={`cluster-${idx}`}
+              coordinate={center}
+              tracksViewChanges={false}
+              onPress={() => onClusterBubblePress(group)}
+            >
+              <View style={styles.clusterBubble}>
+                <Text style={styles.clusterText}>{group.length}</Text>
+              </View>
+            </Marker>
+          );
+        })}
       </MapView>
 
-      {/* Top-right buttons */}
       <View style={styles.locationButtons}>
         <TouchableOpacity style={styles.iconButton} onPress={goToMyLocation} disabled={locating}>
           {locating ? <ActivityIndicator size="small" color="#2e7d32" /> : <Text style={styles.iconText}>📍</Text>}
@@ -258,26 +280,16 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      {/* Bottom sightings button */}
       <TouchableOpacity style={styles.listButton} onPress={() => setListVisible(true)}>
         <Text style={styles.listButtonText}>🦜 {totalSightings} Sightings</Text>
       </TouchableOpacity>
 
-      {/* Bird picker modal */}
       <Modal visible={pickerVisible} transparent animationType="slide">
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => closeModal(setPickerVisible)}>
           <TouchableOpacity activeOpacity={1} onPress={() => {}}>
             <View style={[styles.modalCard, styles.pickerCard, { paddingBottom: keyboardHeight || 32 }]}>
-              <Text style={styles.modalTitle}>
-                {pendingPinId ? 'Add Another Bird' : 'Select Bird'}
-              </Text>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search species..."
-                value={search}
-                onChangeText={setSearch}
-                autoFocus
-              />
+              <Text style={styles.modalTitle}>{pendingPinId ? 'Add Another Bird' : 'Select Bird'}</Text>
+              <TextInput style={styles.searchInput} placeholder="Search species..." value={search} onChangeText={setSearch} autoFocus />
               <FlatList
                 data={filteredBirds}
                 keyExtractor={b => b.id}
@@ -301,7 +313,6 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Pin detail modal */}
       <Modal visible={detailVisible} transparent animationType="slide">
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => closeModal(setDetailVisible)}>
           <TouchableOpacity activeOpacity={1} onPress={() => {}}>
@@ -330,10 +341,7 @@ export default function App() {
                 )}
                 style={styles.pickerList}
               />
-              <TouchableOpacity
-                style={[styles.btn, styles.saveBtn, { marginTop: 10 }]}
-                onPress={() => openPickerForExistingPin(selectedPin)}
-              >
+              <TouchableOpacity style={[styles.btn, styles.saveBtn, { marginTop: 10 }]} onPress={() => openPickerForExistingPin(selectedPin)}>
                 <Text style={styles.saveText}>＋ Add another bird here</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.btn, styles.cancelBtn, { marginTop: 8 }]} onPress={() => closeModal(setDetailVisible)}>
@@ -344,7 +352,6 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Sightings list modal */}
       <Modal visible={listVisible} transparent animationType="slide">
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => closeModal(setListVisible)}>
           <TouchableOpacity activeOpacity={1} onPress={() => {}}>
@@ -399,6 +406,15 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  clusterBubble: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: '#1b5e20',
+    alignItems: 'center', justifyContent: 'center',
+    elevation: 4, shadowColor: '#000', shadowOpacity: 0.3,
+    shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+    borderWidth: 3, borderColor: '#a5d6a7',
+  },
+  clusterText: { color: '#fff', fontWeight: '700', fontSize: 18 },
   locationButtons: { position: 'absolute', top: 60, right: 16, gap: 10 },
   iconButton: {
     width: 48, height: 48, borderRadius: 24,
@@ -415,26 +431,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
   },
   listButtonText: { color: '#fff', fontWeight: '600', fontSize: 15 },
-  modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end',
-  },
-  modalCard: {
-    backgroundColor: '#fff', borderTopLeftRadius: 20,
-    borderTopRightRadius: 20, padding: 20,
-  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
   pickerCard: { maxHeight: '80%' },
   pickerList: { maxHeight: 320 },
   modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12, color: '#1b5e20' },
   detailHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   deletePinText: { color: '#e53935', fontSize: 13 },
-  searchInput: {
-    borderWidth: 1, borderColor: '#ddd', borderRadius: 10,
-    padding: 10, fontSize: 15, marginBottom: 10,
-  },
-  birdRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0',
-  },
+  searchInput: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 10, fontSize: 15, marginBottom: 10 },
+  birdRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   birdThumb: { width: 52, height: 52, borderRadius: 8, backgroundColor: '#e8f5e9', marginRight: 12 },
   birdInfo: { flex: 1 },
   birdName: { fontSize: 15, fontWeight: '600', color: '#1b5e20' },
