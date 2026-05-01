@@ -8,47 +8,31 @@ import {
   Modal,
   FlatList,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
+  Image,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
-import * as Location from 'expo-location';
+import MapView, { Marker } from 'react-native-map-clustering';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import BIRDS from './birds';
 
 const STORAGE_KEY = 'bird_pins';
+
+const NZ_REGION = {
+  latitude: -41.5,
+  longitude: 172.0,
+  latitudeDelta: 14,
+  longitudeDelta: 14,
+};
 
 export default function App() {
   const [pins, setPins] = useState([]);
   const [pendingCoord, setPendingCoord] = useState(null);
-  const [modalVisible, setModalVisible] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false);
   const [listVisible, setListVisible] = useState(false);
-  const [birdName, setBirdName] = useState('');
-  const [notes, setNotes] = useState('');
-  const [region, setRegion] = useState(null);
+  const [search, setSearch] = useState('');
+  const [trackedMarkers, setTrackedMarkers] = useState({});
   const mapRef = useRef(null);
 
-  useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({});
-        setRegion({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        });
-      } else {
-        setRegion({
-          latitude: 37.7749,
-          longitude: -122.4194,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        });
-      }
-    })();
-    loadPins();
-  }, []);
+  useEffect(() => { loadPins(); }, []);
 
   async function loadPins() {
     try {
@@ -64,25 +48,22 @@ export default function App() {
 
   function onMapPress(e) {
     setPendingCoord(e.nativeEvent.coordinate);
-    setBirdName('');
-    setNotes('');
-    setModalVisible(true);
+    setSearch('');
+    setPickerVisible(true);
   }
 
-  function confirmPin() {
-    if (!birdName.trim()) {
-      Alert.alert('Bird name required', 'Please enter the species name.');
-      return;
-    }
+  function selectBird(bird) {
     const pin = {
       id: Date.now().toString(),
       coordinate: pendingCoord,
-      name: birdName.trim(),
-      notes: notes.trim(),
+      birdId: bird.id,
+      name: bird.name,
+      scientific: bird.scientific,
+      image: bird.image,
       date: new Date().toLocaleDateString(),
     };
     savePins([...pins, pin]);
-    setModalVisible(false);
+    setPickerVisible(false);
   }
 
   function deletePin(id) {
@@ -99,36 +80,48 @@ export default function App() {
   function flyToPin(pin) {
     setListVisible(false);
     mapRef.current?.animateToRegion(
-      { ...pin.coordinate, latitudeDelta: 0.01, longitudeDelta: 0.01 },
+      { ...pin.coordinate, latitudeDelta: 0.02, longitudeDelta: 0.02 },
       500
     );
   }
 
-  if (!region) {
-    return (
-      <View style={styles.loading}>
-        <Text>Loading map...</Text>
-      </View>
-    );
-  }
+  const filteredBirds = BIRDS.filter(b =>
+    b.name.toLowerCase().includes(search.toLowerCase()) ||
+    b.scientific.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <View style={styles.container}>
       <MapView
         ref={mapRef}
         style={styles.map}
-        initialRegion={region}
+        initialRegion={NZ_REGION}
         onPress={onMapPress}
+        clusterColor="#2e7d32"
+        clusterTextColor="#fff"
+        clusterFontFamily="System"
+        radius={60}
+        animationEnabled
       >
         {pins.map(pin => (
           <Marker
             key={pin.id}
             coordinate={pin.coordinate}
             title={pin.name}
-            description={pin.notes || pin.date}
-            pinColor="#2e7d32"
+            description={pin.scientific}
+            tracksViewChanges={!trackedMarkers[pin.id]}
             onCalloutPress={() => deletePin(pin.id)}
-          />
+          >
+            <View style={styles.markerContainer}>
+              <Image
+                source={{ uri: pin.image }}
+                style={styles.markerImage}
+                onLoad={() =>
+                  setTrackedMarkers(prev => ({ ...prev, [pin.id]: true }))
+                }
+              />
+            </View>
+          </Marker>
         ))}
       </MapView>
 
@@ -136,47 +129,46 @@ export default function App() {
         <Text style={styles.listButtonText}>🦜 {pins.length} Sightings</Text>
       </TouchableOpacity>
 
-      {/* Add pin modal */}
-      <Modal visible={modalVisible} transparent animationType="slide">
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalOverlay}
-        >
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>New Bird Sighting</Text>
+      {/* Bird picker modal */}
+      <Modal visible={pickerVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, styles.pickerCard]}>
+            <Text style={styles.modalTitle}>Select Bird</Text>
             <TextInput
-              style={styles.input}
-              placeholder="Species name *"
-              value={birdName}
-              onChangeText={setBirdName}
+              style={styles.searchInput}
+              placeholder="Search species..."
+              value={search}
+              onChangeText={setSearch}
               autoFocus
             />
-            <TextInput
-              style={[styles.input, styles.notesInput]}
-              placeholder="Notes (optional)"
-              value={notes}
-              onChangeText={setNotes}
-              multiline
+            <FlatList
+              data={filteredBirds}
+              keyExtractor={b => b.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.birdRow} onPress={() => selectBird(item)}>
+                  <Image source={{ uri: item.image }} style={styles.birdThumb} />
+                  <View style={styles.birdInfo}>
+                    <Text style={styles.birdName}>{item.name}</Text>
+                    <Text style={styles.birdSci}>{item.scientific}</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              keyboardShouldPersistTaps="handled"
             />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.btn, styles.cancelBtn]}
-                onPress={() => setModalVisible(false)}
-              >
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, styles.saveBtn]} onPress={confirmPin}>
-                <Text style={styles.saveText}>Save Pin</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={[styles.btn, styles.cancelBtn, { marginTop: 12 }]}
+              onPress={() => setPickerVisible(false)}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* Sightings list modal */}
       <Modal visible={listVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, styles.listCard]}>
+          <View style={[styles.modalCard, styles.pickerCard]}>
             <Text style={styles.modalTitle}>All Sightings</Text>
             {pins.length === 0 ? (
               <Text style={styles.emptyText}>No sightings yet. Tap the map to add one!</Text>
@@ -185,10 +177,11 @@ export default function App() {
                 data={pins}
                 keyExtractor={p => p.id}
                 renderItem={({ item }) => (
-                  <TouchableOpacity style={styles.listItem} onPress={() => flyToPin(item)}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.listName}>{item.name}</Text>
-                      <Text style={styles.listMeta}>{item.date}{item.notes ? ` · ${item.notes}` : ''}</Text>
+                  <TouchableOpacity style={styles.birdRow} onPress={() => flyToPin(item)}>
+                    <Image source={{ uri: item.image }} style={styles.birdThumb} />
+                    <View style={styles.birdInfo}>
+                      <Text style={styles.birdName}>{item.name}</Text>
+                      <Text style={styles.birdSci}>{item.date}</Text>
                     </View>
                     <TouchableOpacity onPress={() => deletePin(item.id)}>
                       <Text style={styles.deleteText}>✕</Text>
@@ -213,7 +206,21 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  markerContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2.5,
+    borderColor: '#2e7d32',
+    overflow: 'hidden',
+    backgroundColor: '#e8f5e9',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  markerImage: { width: '100%', height: '100%' },
   listButton: {
     position: 'absolute',
     bottom: 40,
@@ -238,35 +245,41 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 24,
+    padding: 20,
     paddingBottom: 40,
   },
-  listCard: { maxHeight: '70%' },
-  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16, color: '#1b5e20' },
-  input: {
+  pickerCard: { maxHeight: '80%' },
+  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12, color: '#1b5e20' },
+  searchInput: {
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 10,
-    padding: 12,
+    padding: 10,
     fontSize: 15,
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  notesInput: { height: 80, textAlignVertical: 'top' },
-  modalButtons: { flexDirection: 'row', gap: 12, marginTop: 4 },
-  btn: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
+  birdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  birdThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: '#e8f5e9',
+    marginRight: 12,
+  },
+  birdInfo: { flex: 1 },
+  birdName: { fontSize: 15, fontWeight: '600', color: '#1b5e20' },
+  birdSci: { fontSize: 12, color: '#888', marginTop: 2, fontStyle: 'italic' },
+  deleteText: { color: '#ccc', fontSize: 18, paddingLeft: 12 },
+  emptyText: { color: '#888', textAlign: 'center', marginVertical: 20 },
+  btn: { paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
   cancelBtn: { backgroundColor: '#f5f5f5' },
   saveBtn: { backgroundColor: '#2e7d32' },
   cancelText: { color: '#555', fontWeight: '600' },
   saveText: { color: '#fff', fontWeight: '600' },
-  listItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  listName: { fontSize: 15, fontWeight: '600', color: '#1b5e20' },
-  listMeta: { fontSize: 12, color: '#888', marginTop: 2 },
-  deleteText: { color: '#ccc', fontSize: 18, paddingLeft: 12 },
-  emptyText: { color: '#888', textAlign: 'center', marginVertical: 20 },
 });
