@@ -10,7 +10,7 @@ import BIRDS from './birds';
 
 const STORAGE_KEY = 'bird_pins';
 const NZ_REGION = { latitude: -41.5, longitude: 172.0, latitudeDelta: 14, longitudeDelta: 14 };
-const CLUSTER_THRESHOLD = 0.07; // fraction of latitudeDelta to use as cluster radius
+const CLUSTER_THRESHOLD = 0.05; // fraction of latitudeDelta to use as cluster radius
 
 function buildClusters(pins, region) {
   const threshold = CLUSTER_THRESHOLD * region.latitudeDelta;
@@ -233,6 +233,7 @@ export default function App() {
         style={styles.map}
         initialRegion={NZ_REGION}
         onPress={onMapPress}
+        onRegionChange={setRegion}
         onRegionChangeComplete={setRegion}
         showsUserLocation
       >
@@ -273,11 +274,12 @@ export default function App() {
           }
 
           const center = clusterCenter(group);
+          const clusterKey = group.map(p => p.id).sort().join('-');
           return (
             <Marker
-              key={`cluster-${idx}`}
+              key={clusterKey}
               coordinate={center}
-              tracksViewChanges={false}
+              tracksViewChanges={true}
               onPress={() => onClusterBubblePress(group)}
             >
               <View style={styles.clusterBubble}>
