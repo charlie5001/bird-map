@@ -122,14 +122,21 @@ export default function App() {
   function onClusterPress(cluster, markers) {
     clusterPressed.current = true;
     setTimeout(() => { clusterPressed.current = false; }, 600);
-    const coords = markers.map(m => ({
-      latitude: m.geometry.coordinates[1],
-      longitude: m.geometry.coordinates[0],
-    }));
-    mapRef.current?.fitToCoordinates(coords, {
-      edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
-      animated: true,
-    });
+
+    const lats = markers.map(m => m.geometry.coordinates[1]);
+    const lngs = markers.map(m => m.geometry.coordinates[0]);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const pad = 0.003;
+
+    mapRef.current?.animateToRegion({
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: Math.max(maxLat - minLat + pad, 0.005),
+      longitudeDelta: Math.max(maxLng - minLng + pad, 0.005),
+    }, 500);
   }
 
   function onMarkerPress(pin) {
