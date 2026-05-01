@@ -27,6 +27,7 @@ export default function App() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const mapRef = useRef(null);
   const clusterPressed = useRef(false);
+  const modalClosing = useRef(false);
   const currentRegion = useRef(NZ_REGION);
 
   useEffect(() => {
@@ -108,8 +109,14 @@ export default function App() {
   }
 
   function onMapPress(e) {
-    if (clusterPressed.current) return;
+    if (clusterPressed.current || modalClosing.current) return;
     openPickerForNewPin(e.nativeEvent.coordinate);
+  }
+
+  function closeModal(setter) {
+    modalClosing.current = true;
+    setter(false);
+    setTimeout(() => { modalClosing.current = false; }, 400);
   }
 
   function onClusterPress(cluster, markers) {
@@ -165,7 +172,7 @@ export default function App() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => {
         savePins(pins.filter(p => p.id !== pinId));
-        setDetailVisible(false);
+        closeModal(setDetailVisible);
       }},
     ]);
   }
@@ -193,7 +200,6 @@ export default function App() {
         clusterTextColor="#fff"
         clusterFontFamily="System"
         radius={35}
-        maxZoom={14}
         clusteringEnabled
         spiderLineColor="#2e7d32"
         animationEnabled
@@ -251,7 +257,7 @@ export default function App() {
 
       {/* Bird picker modal */}
       <Modal visible={pickerVisible} transparent animationType="slide">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPickerVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => closeModal(setPickerVisible)}>
           <TouchableOpacity activeOpacity={1} onPress={() => {}}>
             <View style={[styles.modalCard, styles.pickerCard, { paddingBottom: keyboardHeight || 32 }]}>
               <Text style={styles.modalTitle}>
@@ -279,7 +285,7 @@ export default function App() {
                 keyboardShouldPersistTaps="handled"
                 style={styles.pickerList}
               />
-              <TouchableOpacity style={[styles.btn, styles.cancelBtn]} onPress={() => setPickerVisible(false)}>
+              <TouchableOpacity style={[styles.btn, styles.cancelBtn]} onPress={() => closeModal(setPickerVisible)}>
                 <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
@@ -289,7 +295,7 @@ export default function App() {
 
       {/* Pin detail modal */}
       <Modal visible={detailVisible} transparent animationType="slide">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setDetailVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => closeModal(setDetailVisible)}>
           <TouchableOpacity activeOpacity={1} onPress={() => {}}>
             <View style={[styles.modalCard, styles.pickerCard]}>
               <View style={styles.detailHeader}>
@@ -322,7 +328,7 @@ export default function App() {
               >
                 <Text style={styles.saveText}>＋ Add another bird here</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, styles.cancelBtn, { marginTop: 8 }]} onPress={() => setDetailVisible(false)}>
+              <TouchableOpacity style={[styles.btn, styles.cancelBtn, { marginTop: 8 }]} onPress={() => closeModal(setDetailVisible)}>
                 <Text style={styles.cancelText}>Close</Text>
               </TouchableOpacity>
             </View>
@@ -332,7 +338,7 @@ export default function App() {
 
       {/* Sightings list modal */}
       <Modal visible={listVisible} transparent animationType="slide">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setListVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => closeModal(setListVisible)}>
           <TouchableOpacity activeOpacity={1} onPress={() => {}}>
             <View style={[styles.modalCard, styles.pickerCard]}>
               <Text style={styles.modalTitle}>All Sightings</Text>
@@ -354,7 +360,7 @@ export default function App() {
                   style={styles.pickerList}
                 />
               )}
-              <TouchableOpacity style={[styles.btn, styles.saveBtn, { marginTop: 10 }]} onPress={() => setListVisible(false)}>
+              <TouchableOpacity style={[styles.btn, styles.saveBtn, { marginTop: 10 }]} onPress={() => closeModal(setListVisible)}>
                 <Text style={styles.saveText}>Close</Text>
               </TouchableOpacity>
             </View>
