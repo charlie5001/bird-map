@@ -59,6 +59,7 @@ export default function App() {
   const mapRef = useRef(null);
   const clusterPressed = useRef(false);
   const modalClosing = useRef(false);
+  const regionRef = useRef(NZ_REGION);
 
   useEffect(() => {
     loadPins();
@@ -87,7 +88,7 @@ export default function App() {
       if (status !== 'granted') { Alert.alert('Permission denied', 'Enable location in Settings.'); return; }
       const loc = await Location.getCurrentPositionAsync({});
       const coord = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
-      mapRef.current?.animateToRegion({ ...coord, latitudeDelta: region.latitudeDelta, longitudeDelta: region.longitudeDelta }, 600);
+      mapRef.current?.animateToRegion({ ...coord, latitudeDelta: regionRef.current.latitudeDelta, longitudeDelta: regionRef.current.longitudeDelta }, 600);
     } finally { setLocating(false); }
   }
 
@@ -157,29 +158,18 @@ export default function App() {
 
     const lats = group.map(p => p.coordinate.latitude);
     const lngs = group.map(p => p.coordinate.longitude);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
-    const spanLat = maxLat - minLat;
-    const spanLng = maxLng - minLng;
+    const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+    const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
 
-    // Target a delta small enough that pins will separate on next render.
-    // Pins cluster when delta * CLUSTER_THRESHOLD > span, so we need
-    // newDelta < span / CLUSTER_THRESHOLD. Use 30% of that for clear separation.
-    const targetLat = spanLat > 0
-      ? spanLat / CLUSTER_THRESHOLD * 0.3
-      : region.latitudeDelta / 5;
-    const targetLng = spanLng > 0
-      ? spanLng / CLUSTER_THRESHOLD * 0.3
-      : region.longitudeDelta / 5;
+    // Always zoom in 8x from current level using the live ref (never stale)
+    const newDelta = Math.max(regionRef.current.latitudeDelta / 8, 0.0002);
 
     mapRef.current?.animateToRegion({
-      latitude: (minLat + maxLat) / 2,
-      longitude: (minLng + maxLng) / 2,
-      latitudeDelta: Math.max(targetLat, 0.0004),
-      longitudeDelta: Math.max(targetLng, 0.0004),
-    }, 500);
+      latitude: centerLat,
+      longitude: centerLng,
+      latitudeDelta: newDelta,
+      longitudeDelta: newDelta,
+    }, 400);
   }
 
   function selectBird(bird) {
@@ -233,8 +223,8 @@ export default function App() {
         style={styles.map}
         initialRegion={NZ_REGION}
         onPress={onMapPress}
-        onRegionChange={setRegion}
-        onRegionChangeComplete={setRegion}
+        onRegionChange={r => { regionRef.current = r; }}
+        onRegionChangeComplete={r => { regionRef.current = r; setRegion(r); }}
         showsUserLocation
       >
         {clusters.map((group, idx) => {
@@ -279,7 +269,7 @@ export default function App() {
             <Marker
               key={clusterKey}
               coordinate={center}
-              tracksViewChanges={true}
+              tracksViewChanges={false}
               onPress={() => onClusterBubblePress(group)}
             >
               <View style={styles.clusterBubble}>
