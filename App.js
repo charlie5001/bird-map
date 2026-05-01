@@ -37,6 +37,7 @@ export default function App() {
   const [locating, setLocating] = useState(false);
   const mapRef = useRef(null);
   const clusterPressed = useRef(false);
+  const currentRegion = useRef(NZ_REGION);
 
   useEffect(() => {
     loadPins();
@@ -64,8 +65,9 @@ export default function App() {
       const loc = await Location.getCurrentPositionAsync({});
       const coord = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
       setUserLocation(coord);
+      const { latitudeDelta, longitudeDelta } = currentRegion.current;
       mapRef.current?.animateToRegion(
-        { ...coord, latitudeDelta: 0.05, longitudeDelta: 0.05 },
+        { ...coord, latitudeDelta, longitudeDelta },
         600
       );
     } finally {
@@ -173,9 +175,10 @@ export default function App() {
         clusterColor="#2e7d32"
         clusterTextColor="#fff"
         clusterFontFamily="System"
-        radius={60}
+        radius={35}
         animationEnabled
         onClusterPress={onClusterPress}
+        onRegionChangeComplete={region => { currentRegion.current = region; }}
         showsUserLocation
       >
         {pins.map(pin => (
