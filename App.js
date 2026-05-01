@@ -9,9 +9,11 @@ import {
   FlatList,
   Alert,
   Image,
+  ActivityIndicator,
 } from 'react-native';
-import MapView from 'react-native-map-clustering';
-import { Marker } from 'react-native-maps';
+import MapView, { Marker } from 'react-native-map-clustering';
+import { Marker as RNMarker } from 'react-native-maps';
+import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BIRDS from './birds';
 
@@ -31,10 +33,65 @@ export default function App() {
   const [listVisible, setListVisible] = useState(false);
   const [search, setSearch] = useState('');
   const [trackedMarkers, setTrackedMarkers] = useState({});
+  const [userLocation, setUserLocation] = useState(null);
+  const [locating, setLocating] = useState(false);
   const mapRef = useRef(null);
   const clusterPressed = useRef(false);
 
-  useEffect(() => { loadPins(); }, []);
+  useEffect(() => {
+    loadPins();
+    requestLocation();
+  }, []);
+
+  async function requestLocation() {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return;
+    const loc = await Location.getCurrentPositionAsync({});
+    setUserLocation({
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+    });
+  }
+
+  async function goToMyLocation() {
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'Enable location access in Settings.');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({});
+      const coord = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+      setUserLocation(coord);
+      mapRef.current?.animateToRegion(
+        { ...coord, latitudeDelta: 0.05, longitudeDelta: 0.05 },
+        600
+      );
+    } finally {
+      setLocating(false);
+    }
+  }
+
+  async function addBirdAtMyLocation() {
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'Enable location access in Settings.');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({});
+      setPendingCoord({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+      setSearch('');
+      setPickerVisible(true);
+    } finally {
+      setLocating(false);
+    }
+  }
 
   async function loadPins() {
     try {
@@ -119,9 +176,10 @@ export default function App() {
         radius={60}
         animationEnabled
         onClusterPress={onClusterPress}
+        showsUserLocation
       >
         {pins.map(pin => (
-          <Marker
+          <RNMarker
             key={pin.id}
             coordinate={pin.coordinate}
             title={pin.name}
@@ -138,10 +196,25 @@ export default function App() {
                 }
               />
             </View>
-          </Marker>
+          </RNMarker>
         ))}
       </MapView>
 
+      {/* Top-right location buttons */}
+      <View style={styles.locationButtons}>
+        <TouchableOpacity style={styles.iconButton} onPress={goToMyLocation} disabled={locating}>
+          {locating ? (
+            <ActivityIndicator size="small" color="#2e7d32" />
+          ) : (
+            <Text style={styles.iconText}>📍</Text>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.iconButton, styles.addHereButton]} onPress={addBirdAtMyLocation} disabled={locating}>
+          <Text style={styles.iconText}>🦜＋</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Bottom sightings button */}
       <TouchableOpacity style={styles.listButton} onPress={() => setListVisible(true)}>
         <Text style={styles.listButtonText}>🦜 {pins.length} Sightings</Text>
       </TouchableOpacity>
@@ -238,6 +311,29 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
   },
   markerImage: { width: '100%', height: '100%' },
+  locationButtons: {
+    position: 'absolute',
+    top: 60,
+    right: 16,
+    gap: 10,
+  },
+  iconButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  addHereButton: {
+    backgroundColor: '#e8f5e9',
+  },
+  iconText: { fontSize: 20 },
   listButton: {
     position: 'absolute',
     bottom: 40,
