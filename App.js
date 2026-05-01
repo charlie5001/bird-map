@@ -73,7 +73,17 @@ export default function App() {
   async function loadPins() {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) setPins(JSON.parse(raw));
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const migrated = parsed.map(p => {
+        if (p.birds) return p;
+        return {
+          id: p.id,
+          coordinate: p.coordinate,
+          birds: [{ birdId: p.birdId, name: p.name, scientific: p.scientific, image: p.image, date: p.date }],
+        };
+      });
+      setPins(migrated);
     } catch {}
   }
 
